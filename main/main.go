@@ -30,6 +30,7 @@ import (
 	"github.com/aliyun/aliyun-cli/v3/oss/lib"
 	"github.com/aliyun/aliyun-cli/v3/ossutil"
 	"github.com/aliyun/aliyun-cli/v3/otsutil"
+	websockettest "github.com/aliyun/aliyun-cli/v3/websocketTest"
 )
 
 func Main(args []string) {
@@ -82,6 +83,7 @@ func Main(args []string) {
 	rootCmd.AddSubCommand(ossutil.NewOssutilCommand())
 	// tablestore command
 	rootCmd.AddSubCommand(otsutil.NewOtsutilCommand())
+	rootCmd.AddSubCommand(websockettest.NewWebsocketTestCommand())
 	if os.Getenv("GENERATE_METADATA") == "YES" {
 		generateMetadata(rootCmd)
 	} else {
