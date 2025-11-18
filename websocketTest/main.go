@@ -73,7 +73,8 @@ func runWebsocketTest(ctx *cli.Context, args []string) error {
 	fmt.Printf("response: %s\n", response["statusCode"])
 
 	// testAwapWebSocket(ctx, args)
-	testGeneralWebSocket(ctx, args)
+	testAwapWebSocketWithoutHandleRawMessage(ctx, args) // 新增：不重写 HandleRawMessage 的用例
+	// testGeneralWebSocket(ctx, args)
 	// testSequentialMessageReception(ctx, args)
 	return nil
 }
@@ -119,20 +120,20 @@ type SimpleHandler struct {
 }
 
 func (h *SimpleHandler) AfterConnectionEstablished(session *dara.WebSocketSessionInfo) error {
-	fmt.Println("✓ Connected to WebSocket server")
+	fmt.Println("✓ CLI Connected to WebSocket server")
 	printSessionInfo(session)
 	return nil
 }
 
 func (h *SimpleHandler) HandleAwapMessage(session *dara.WebSocketSessionInfo, message *dara.AwapMessage) error {
-	fmt.Println("📨 Received AWAP message:")
+	fmt.Println("📨 CLI Received AWAP message:")
 	jsonData, _ := json.Marshal(message)
 	fmt.Printf("  Message: %s\n", string(jsonData))
 	return nil
 }
 
 func (h *SimpleHandler) HandleAwapIncomingMessage(session *dara.WebSocketSessionInfo, message *dara.AwapIncomingMessage) error {
-	fmt.Println("📬 Received AWAP incoming message:")
+	fmt.Println("📬 CLI Received AWAP incoming message:")
 	jsonData, _ := json.Marshal(message)
 	fmt.Printf("  Incoming Message: %s\n", string(jsonData))
 	return nil
@@ -144,7 +145,7 @@ func (h *SimpleHandler) HandleRawMessage(session *dara.WebSocketSessionInfo, mes
 	// can't access the outer SimpleHandler type
 	awapMsg, err := dara.ParseAwapMessage(message)
 	if err != nil {
-		fmt.Printf("[Simple] Failed to parse AWAP message: %v\n", err)
+		fmt.Printf("[CLI Simple] Failed to parse AWAP message: %v\n", err)
 		return err
 	}
 
@@ -155,8 +156,7 @@ func (h *SimpleHandler) HandleRawMessage(session *dara.WebSocketSessionInfo, mes
 	}
 
 	// Also call HandleAwapIncomingMessage for event types
-	if awapMsg.Type == dara.AwapMessageTypeEvent ||
-		awapMsg.Type == dara.AwapMessageTypeUpstreamTextEvent ||
+	if awapMsg.Type == dara.AwapMessageTypeUpstreamTextEvent ||
 		awapMsg.Type == dara.AwapMessageTypeUpstreamBinaryEvent ||
 		awapMsg.Type == dara.AwapMessageTypeAckRequiredTextEvent ||
 		awapMsg.Type == dara.AwapMessageTypeMessageReceiveEvent ||
@@ -177,13 +177,13 @@ func (h *SimpleHandler) SupportsPartialMessages() bool {
 }
 
 func (h *SimpleHandler) HandleError(session *dara.WebSocketSessionInfo, err error) error {
-	fmt.Printf("❌ Error: %v\n", err)
+	fmt.Printf("❌ CLI Error: %v\n", err)
 	printSessionInfo(session)
 	return nil
 }
 
 func (h *SimpleHandler) AfterConnectionClosed(session *dara.WebSocketSessionInfo, code int, reason string) error {
-	fmt.Printf("✗ Connection closed (code: %d, reason: %s)\n", code, reason)
+	fmt.Printf("✗ CLI Connection closed (code: %d, reason: %s)\n", code, reason)
 	printSessionInfo(session)
 	return nil
 }
@@ -220,7 +220,7 @@ func testAwapWebSocket(ctx *cli.Context, args []string) error {
 		// Product:  dara.String("DaluTestInner"),
 		Action:   tea.String("WebsocketAwapDemoApi"),
 		Version:  tea.String("2022-02-02"),
-		Protocol: tea.String("https"),
+		Protocol: tea.String("wss"),
 		Method:   tea.String("GET"),
 		Pathname: tea.String("/ws/awap-demo-api"),
 		AuthType: tea.String("AK"),
@@ -232,23 +232,24 @@ func testAwapWebSocket(ctx *cli.Context, args []string) error {
 		},
 	}
 
-	runtime := &dara.ExtendedRuntimeOptions{
-		RuntimeOptions: dara.RuntimeOptions{
-			ReadTimeout:    dara.Int(60000), // 60 seconds
-			ConnectTimeout: dara.Int(30000), // 30 seconds (increased for slow networks)
-		},
-		WebSocketPingInterval:      dara.Int(30000), // 30秒心跳
-		WebSocketHandshakeTimeout:  dara.Int(30000), // 30秒握手超时（增加以应对网络延迟）
-		WebSocketWriteTimeout:      dara.Int(30000), // 30秒写入超时（增加以应对网络延迟）
-		WebSocketEnableReconnect:   dara.Bool(true), // 启用重连
-		WebSocketMaxReconnectTimes: dara.Int(5),     // 最多重连5次
+	runtime := &dara.RuntimeOptions{
+		ReadTimeout:                dara.Int(60000),  // 60 seconds
+		ConnectTimeout:             dara.Int(30000),  // 30 seconds (increased for slow networks)
+		WebSocketPingInterval:      dara.Int(30000),  // 30秒心跳
+		WebSocketHandshakeTimeout:  dara.Int(30000),  // 30秒握手超时（增加以应对网络延迟）
+		WebSocketWriteTimeout:      dara.Int(30000),  // 30秒写入超时（增加以应对网络延迟）
+		WebSocketEnableReconnect:   dara.Bool(true),  // 启用重连
+		WebSocketMaxReconnectTimes: dara.Int(5),      // 最多重连5次
+		WebSocketHandler:           &SimpleHandler{}, // 通过 runtime 配置 handler
 	}
 
 	fmt.Println("Connecting...")
-	wsClient, err := apiClient.DoWebSocketRequest(params, request, runtime, &SimpleHandler{})
+	// Handler 从 runtime 中获取
+	result, err := apiClient.DoWebSocketRequest(params, request, runtime)
 	if err != nil {
 		log.Fatalf("Connection failed: %v", err)
 	}
+	wsClient := result["wsClient"].(dara.WebSocketClient)
 	defer wsClient.Close()
 
 	fmt.Println("\nSending AWAP message...")
@@ -272,12 +273,28 @@ func testAwapWebSocket(ctx *cli.Context, args []string) error {
 	}
 
 	// 方法 3: 手动构建 AWAP 消息
-	awapMsg := dara.BuildAwapRequest("msg-003", 3, map[string]interface{}{
+	awapMsg := apiClient.BuildAwapRequest("msg-003", 3, map[string]interface{}{
 		"message": "Hello WebSocket!",
 	})
 	err = apiClient.SendAwapMessage(wsClient, awapMsg)
 	if err != nil {
 		log.Printf("Failed to send AWAP message: %v", err)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// 方法 4: 发送 AckRequiredTextEvent 类型的消息（需要确认的消息）
+	fmt.Println("\n4. Sending AckRequiredTextEvent message...")
+	ackRequiredMsg := apiClient.BuildAwapMessage(dara.AwapMessageTypeAckRequiredTextEvent, "msg-004", 4, map[string]interface{}{
+		"action":    "ackRequiredTest",
+		"data":      "This message requires acknowledgment",
+		"timestamp": time.Now().Unix(),
+	})
+	err = apiClient.SendAwapMessage(wsClient, ackRequiredMsg)
+	if err != nil {
+		log.Printf("Failed to send AckRequiredTextEvent message: %v", err)
+	} else {
+		fmt.Println("✓ AckRequiredTextEvent message sent successfully")
 	}
 
 	// Wait for response
@@ -393,6 +410,178 @@ func (h *GeneralHandler) AfterConnectionClosed(session *dara.WebSocketSessionInf
 	return nil
 }
 
+// NoHandleRawMessageHandler 是一个不重写 HandleRawMessage 的 handler
+// 这个 handler 依赖 AbstractAwapWebSocketHandler.HandleRawMessage
+// 来展示 AwapWebSocketHandler 接口的实际使用
+type NoHandleRawMessageHandler struct {
+	dara.AbstractAwapWebSocketHandler
+	messageCount int
+	mu           sync.Mutex
+}
+
+func (h *NoHandleRawMessageHandler) AfterConnectionEstablished(session *dara.WebSocketSessionInfo) error {
+	fmt.Println("✓ CLI NoHandleRawMessage - Connected to WebSocket server")
+	fmt.Println("  Note: This handler does NOT override HandleRawMessage")
+	fmt.Println("  It uses AbstractAwapWebSocketHandler.HandleRawMessage")
+	fmt.Println("  which uses AwapWebSocketHandler interface")
+	printSessionInfo(session)
+	return nil
+}
+
+func (h *NoHandleRawMessageHandler) HandleAwapMessage(session *dara.WebSocketSessionInfo, message *dara.AwapMessage) error {
+	h.mu.Lock()
+	h.messageCount++
+	count := h.messageCount
+	h.mu.Unlock()
+
+	fmt.Printf("📨 CLI NoHandleRawMessage - HandleAwapMessage called (#%d):\n", count)
+	fmt.Printf("  Type: %s\n", message.Type)
+	fmt.Printf("  ID: %s\n", message.ID)
+	fmt.Printf("  Seq: %d\n", message.Seq)
+	if message.Payload != nil {
+		payloadJSON, _ := json.Marshal(message.Payload)
+		fmt.Printf("  Payload: %s\n", string(payloadJSON))
+	}
+	printSessionInfo(session)
+	return nil
+}
+
+func (h *NoHandleRawMessageHandler) HandleAwapIncomingMessage(session *dara.WebSocketSessionInfo, message *dara.AwapIncomingMessage) error {
+	fmt.Printf("📬 CLI NoHandleRawMessage - HandleAwapIncomingMessage called:\n")
+	fmt.Printf("  Type: %s\n", message.Type)
+	fmt.Printf("  ID: %s\n", message.ID)
+	fmt.Printf("  Seq: %d\n", message.Seq)
+	fmt.Printf("  RawPayload length: %d bytes\n", len(message.RawPayload))
+	printSessionInfo(session)
+	return nil
+}
+
+func (h *NoHandleRawMessageHandler) HandleError(session *dara.WebSocketSessionInfo, err error) error {
+	fmt.Printf("❌ CLI NoHandleRawMessage - Error: %v\n", err)
+	printSessionInfo(session)
+	return nil
+}
+
+func (h *NoHandleRawMessageHandler) AfterConnectionClosed(session *dara.WebSocketSessionInfo, code int, reason string) error {
+	h.mu.Lock()
+	count := h.messageCount
+	h.mu.Unlock()
+
+	fmt.Printf("✗ CLI NoHandleRawMessage - Connection closed (code: %d, reason: %s)\n", code, reason)
+	fmt.Printf("  Total messages received: %d\n", count)
+	printSessionInfo(session)
+	return nil
+}
+
+func (h *NoHandleRawMessageHandler) SupportsPartialMessages() bool {
+	return false
+}
+
+func testAwapWebSocketWithoutHandleRawMessage(ctx *cli.Context, args []string) error {
+	fmt.Println("\n=== AWAP WebSocket Test (Without HandleRawMessage Override) ===")
+	fmt.Println("This test demonstrates AwapWebSocketHandler interface usage")
+	fmt.Println("The handler does NOT override HandleRawMessage,")
+	fmt.Println("so it uses AbstractAwapWebSocketHandler.HandleRawMessage")
+	fmt.Println("which uses AwapWebSocketHandler interface for type assertion")
+
+	profile, _ := config.LoadProfileWithContext(ctx)
+	credential, err := profile.GetCredential(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to get credential: %w", err)
+	}
+	config := &openapiClient.Config{
+		Credential: credential,
+		Endpoint:   dara.String("dalutest-pre.aliyuncs.com"),
+		Protocol:   dara.String("https"),
+	}
+
+	apiClient, err := openapiClient.NewClient(config)
+	if err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+
+	params := &openapiClient.Params{
+		Action:   tea.String("WebsocketAwapDemoApi"),
+		Version:  tea.String("2022-02-02"),
+		Protocol: tea.String("wss"),
+		Method:   tea.String("GET"),
+		Pathname: tea.String("/ws/awap-demo-api"),
+		AuthType: tea.String("AK"),
+	}
+
+	request := &openapiClient.OpenApiRequest{
+		Headers: map[string]*string{
+			"Sec-Websocket-Protocol": tea.String("awap"),
+		},
+	}
+
+	runtime := &dara.RuntimeOptions{
+		ReadTimeout:                dara.Int(60000),              // 60 seconds
+		ConnectTimeout:             dara.Int(30000),              // 30 seconds
+		WebSocketPingInterval:      dara.Int(30000),              // 30秒心跳
+		WebSocketHandshakeTimeout:  dara.Int(30000),              // 30秒握手超时
+		WebSocketWriteTimeout:      dara.Int(30000),              // 30秒写入超时
+		WebSocketEnableReconnect:   dara.Bool(true),              // 启用重连
+		WebSocketMaxReconnectTimes: dara.Int(5),                  // 最多重连5次
+		WebSocketHandler:           &NoHandleRawMessageHandler{}, // 使用不重写 HandleRawMessage 的 handler
+	}
+
+	fmt.Println("Connecting...")
+	result, err := apiClient.DoWebSocketRequest(params, request, runtime)
+	if err != nil {
+		log.Fatalf("Connection failed: %v", err)
+	}
+	wsClient := result["wsClient"].(dara.WebSocketClient)
+	defer wsClient.Close()
+
+	fmt.Println("\nSending AWAP messages...")
+
+	// 方法 1: 使用 SendAwapRequest 发送请求消息
+	fmt.Println("1. Sending AWAP request message...")
+	err = apiClient.SendAwapRequest(wsClient, "msg-no-handleraw-001", 1, map[string]interface{}{
+		"action": "test",
+		"data":   "This handler does NOT override HandleRawMessage",
+	})
+	if err != nil {
+		log.Printf("Failed to send AWAP request: %v", err)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// 方法 2: 使用 SendAwapEvent 发送事件消息
+	fmt.Println("2. Sending AWAP event message...")
+	err = apiClient.SendAwapEvent(wsClient, "msg-no-handleraw-002", 2, map[string]interface{}{
+		"eventType": "testEvent",
+		"message":   "Testing AwapWebSocketHandler interface usage",
+	})
+	if err != nil {
+		log.Printf("Failed to send AWAP event: %v", err)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// 方法 3: 发送 AckRequiredTextEvent 类型的消息
+	fmt.Println("3. Sending AckRequiredTextEvent message...")
+	ackRequiredMsg := apiClient.BuildAwapMessage(dara.AwapMessageTypeAckRequiredTextEvent, "msg-no-handleraw-003", 3, map[string]interface{}{
+		"action":    "ackRequiredTest",
+		"data":      "This message requires acknowledgment",
+		"timestamp": time.Now().Unix(),
+	})
+	err = apiClient.SendAwapMessage(wsClient, ackRequiredMsg)
+	if err != nil {
+		log.Printf("Failed to send AckRequiredTextEvent message: %v", err)
+	}
+
+	// Wait for response
+	fmt.Println("\nWaiting for server responses...")
+	time.Sleep(3 * time.Second)
+
+	fmt.Println("\n=== NoHandleRawMessage Test Complete ===")
+	fmt.Println("This test demonstrates that AwapWebSocketHandler interface")
+	fmt.Println("is used when handler does NOT override HandleRawMessage")
+	return nil
+}
+
 func testGeneralWebSocket(ctx *cli.Context, args []string) error {
 	fmt.Println("\n=== General WebSocket Example ===")
 	profile, _ := config.LoadProfileWithContext(ctx)
@@ -414,7 +603,7 @@ func testGeneralWebSocket(ctx *cli.Context, args []string) error {
 	params := &openapiClient.Params{
 		Action:   tea.String("WebsocketGeneralDemoApi"),
 		Version:  tea.String("2022-02-02"),
-		Protocol: tea.String("https"),
+		Protocol: tea.String("wss"),
 		Method:   tea.String("GET"),
 		Pathname: tea.String("/ws/general-demo-api"),
 		AuthType: tea.String("AK"),
@@ -426,23 +615,24 @@ func testGeneralWebSocket(ctx *cli.Context, args []string) error {
 		},
 	}
 
-	runtime := &dara.ExtendedRuntimeOptions{
-		RuntimeOptions: dara.RuntimeOptions{
-			ReadTimeout:    dara.Int(60000), // 60 seconds
-			ConnectTimeout: dara.Int(30000), // 30 seconds
-		},
-		WebSocketPingInterval:      dara.Int(30000), // 30秒心跳
-		WebSocketHandshakeTimeout:  dara.Int(30000), // 30秒握手超时
-		WebSocketWriteTimeout:      dara.Int(30000), // 30秒写入超时
-		WebSocketEnableReconnect:   dara.Bool(true), // 启用重连
-		WebSocketMaxReconnectTimes: dara.Int(5),     // 最多重连5次
+	runtime := &dara.RuntimeOptions{
+		ReadTimeout:                dara.Int(60000),   // 60 seconds
+		ConnectTimeout:             dara.Int(30000),   // 30 seconds
+		WebSocketPingInterval:      dara.Int(30000),   // 30秒心跳
+		WebSocketHandshakeTimeout:  dara.Int(30000),   // 30秒握手超时
+		WebSocketWriteTimeout:      dara.Int(30000),   // 30秒写入超时
+		WebSocketEnableReconnect:   dara.Bool(true),   // 启用重连
+		WebSocketMaxReconnectTimes: dara.Int(5),       // 最多重连5次
+		WebSocketHandler:           &GeneralHandler{}, // 通过 runtime 配置 handler
 	}
 
 	fmt.Println("Connecting to General WebSocket...")
-	wsClient, err := apiClient.DoWebSocketRequest(params, request, runtime, &GeneralHandler{})
+	// Handler 从 runtime 中获取
+	result, err := apiClient.DoWebSocketRequest(params, request, runtime)
 	if err != nil {
 		log.Fatalf("Connection failed: %v", err)
 	}
+	wsClient := result["wsClient"].(dara.WebSocketClient)
 	defer wsClient.Close()
 
 	fmt.Println("\nSending General messages...")
@@ -457,50 +647,50 @@ func testGeneralWebSocket(ctx *cli.Context, args []string) error {
 	time.Sleep(1 * time.Second)
 
 	// 方法 2: 发送 JSON 消息
-	// fmt.Println("2. Sending General JSON message...")
-	// eventData := map[string]interface{}{
-	// 	"name": "general-test",
-	// 	"object": map[string]interface{}{
-	// 		"field1": "general",
-	// 		"field2": 2,
-	// 		"field3": []string{"test"},
-	// 	},
-	// 	"list": []map[string]interface{}{
-	// 		{"enabled": false, "value": "general"},
-	// 	},
-	// 	"map": map[string]string{
-	// 		"test": "test",
-	// 	},
-	// }
-	// err = apiClient.SendGeneralJSONMessage(wsClient, eventData)
-	// if err != nil {
-	// 	log.Printf("Failed to send General JSON message: %v", err)
-	// }
+	fmt.Println("2. Sending General JSON message...")
+	eventData := map[string]interface{}{
+		"name": "general-test",
+		"object": map[string]interface{}{
+			"field1": "general",
+			"field2": 2,
+			"field3": []string{"test"},
+		},
+		"list": []map[string]interface{}{
+			{"enabled": false, "value": "general"},
+		},
+		"map": map[string]string{
+			"test": "test",
+		},
+	}
+	err = apiClient.SendGeneralJSONMessage(wsClient, eventData)
+	if err != nil {
+		log.Printf("Failed to send General JSON message: %v", err)
+	}
 
-	// time.Sleep(1 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// 方法 3: 发送带自定义头部的消息
-	// fmt.Println("3. Sending General message with custom headers...")
-	// generalMsg := dara.BuildGeneralJSONMessage(map[string]interface{}{
-	// 	"action": "test",
-	// 	"data":   "Hello with headers!",
-	// })
-	// generalMsg.WithHeader("X-Custom-Header", "custom-value")
-	// generalMsg.WithHeader("Content-Type", "application/json")
-	// err = apiClient.SendGeneralMessage(wsClient, generalMsg)
-	// if err != nil {
-	// 	log.Printf("Failed to send General message with headers: %v", err)
-	// }
+	fmt.Println("3. Sending General message with custom headers...")
+	generalMsg := apiClient.BuildGeneralJSONMessage(map[string]interface{}{
+		"action": "test",
+		"data":   "Hello with headers!",
+	})
+	generalMsg.WithHeader("X-Custom-Header", "custom-value")
+	generalMsg.WithHeader("Content-Type", "application/json")
+	err = apiClient.SendGeneralMessage(wsClient, generalMsg)
+	if err != nil {
+		log.Printf("Failed to send General message with headers: %v", err)
+	}
 
-	// time.Sleep(1 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// 方法 4: 发送二进制消息
-	// fmt.Println("4. Sending General binary message...")
-	// binaryData := []byte("Binary General Data")
-	// err = apiClient.SendGeneralBinaryMessage(wsClient, binaryData)
-	// if err != nil {
-	// 	log.Printf("Failed to send General binary message: %v", err)
-	// }
+	fmt.Println("4. Sending General binary message...")
+	binaryData := []byte("Binary General Data")
+	err = apiClient.SendGeneralBinaryMessage(wsClient, binaryData)
+	if err != nil {
+		log.Printf("Failed to send General binary message: %v", err)
+	}
 
 	// Wait for response
 	time.Sleep(3 * time.Second)
@@ -526,7 +716,7 @@ func NewSequentialHandler(expectedCount int) *SequentialHandler {
 }
 
 func (h *SequentialHandler) AfterConnectionEstablished(session *dara.WebSocketSessionInfo) error {
-	fmt.Println("✓ Sequential Test - Connected to WebSocket server")
+	fmt.Println("✓ CLI Sequential Test - Connected to WebSocket server")
 	printSessionInfo(session)
 	return nil
 }
@@ -535,7 +725,7 @@ func (h *SequentialHandler) HandleAwapMessage(session *dara.WebSocketSessionInfo
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	fmt.Printf("📨 Sequential Test - HandleAwapMessage called: seq=%d, type=%s, id=%s\n",
+	fmt.Printf("📨 CLI Sequential Test - HandleAwapMessage called: seq=%d, type=%s, id=%s\n",
 		message.Seq, message.Type, message.ID)
 	printSessionInfo(session)
 
@@ -563,7 +753,7 @@ func (h *SequentialHandler) HandleAwapMessage(session *dara.WebSocketSessionInfo
 func (h *SequentialHandler) HandleAwapIncomingMessage(session *dara.WebSocketSessionInfo, message *dara.AwapIncomingMessage) error {
 	// This is called after HandleAwapMessage, so we don't need to count again
 	// Just log for debugging
-	fmt.Printf("📬 Sequential Test - HandleAwapIncomingMessage called: seq=%d, type=%s, id=%s\n",
+	fmt.Printf("📬 CLI Sequential Test - HandleAwapIncomingMessage called: seq=%d, type=%s, id=%s\n",
 		message.Seq, message.Type, message.ID)
 	return nil
 }
@@ -574,20 +764,16 @@ func (h *SequentialHandler) HandleRawMessage(session *dara.WebSocketSessionInfo,
 	// can't access the outer SequentialHandler type
 	awapMsg, err := dara.ParseAwapMessage(message)
 	if err != nil {
-		fmt.Printf("[Sequential] Failed to parse AWAP message: %v\n", err)
+		fmt.Printf("[CLI Sequential] Failed to parse AWAP message: %v\n", err)
 		return err
 	}
 
-	// Call HandleAwapMessage directly on h (which is *SequentialHandler)
-	// This will call our overridden implementation
-	fmt.Printf("[Sequential] Calling HandleAwapMessage directly: seq=%d, type=%s\n", awapMsg.Seq, awapMsg.Type)
+	fmt.Printf("[CLI Sequential] Calling HandleAwapMessage directly: seq=%d, type=%s\n", awapMsg.Seq, awapMsg.Type)
 	if err := h.HandleAwapMessage(session, awapMsg); err != nil {
 		return err
 	}
 
-	// Also call HandleAwapIncomingMessage for event types
-	if awapMsg.Type == dara.AwapMessageTypeEvent ||
-		awapMsg.Type == dara.AwapMessageTypeUpstreamTextEvent ||
+	if awapMsg.Type == dara.AwapMessageTypeUpstreamTextEvent ||
 		awapMsg.Type == dara.AwapMessageTypeUpstreamBinaryEvent ||
 		awapMsg.Type == dara.AwapMessageTypeAckRequiredTextEvent ||
 		awapMsg.Type == dara.AwapMessageTypeMessageReceiveEvent ||
@@ -608,13 +794,13 @@ func (h *SequentialHandler) SupportsPartialMessages() bool {
 }
 
 func (h *SequentialHandler) HandleError(session *dara.WebSocketSessionInfo, err error) error {
-	fmt.Printf("❌ Sequential Test Error: %v\n", err)
+	fmt.Printf("❌ CLI Sequential Test Error: %v\n", err)
 	printSessionInfo(session)
 	return nil
 }
 
 func (h *SequentialHandler) AfterConnectionClosed(session *dara.WebSocketSessionInfo, code int, reason string) error {
-	fmt.Printf("✗ Sequential Test - Connection closed (code: %d, reason: %s)\n", code, reason)
+	fmt.Printf("✗ CLI Sequential Test - Connection closed (code: %d, reason: %s)\n", code, reason)
 	printSessionInfo(session)
 	return nil
 }
@@ -667,7 +853,7 @@ func testSequentialMessageReception(ctx *cli.Context, args []string) error {
 	params := &openapiClient.Params{
 		Action:   tea.String("WebsocketAwapDemoApi"),
 		Version:  tea.String("2022-02-02"),
-		Protocol: tea.String("https"),
+		Protocol: tea.String("wss"),
 		Method:   tea.String("GET"),
 		Pathname: tea.String("/ws/awap-demo-api"),
 		AuthType: tea.String("AK"),
@@ -683,30 +869,30 @@ func testSequentialMessageReception(ctx *cli.Context, args []string) error {
 		},
 	}
 
-	runtime := &dara.ExtendedRuntimeOptions{
-		RuntimeOptions: dara.RuntimeOptions{
-			ReadTimeout:    dara.Int(120000), // 120 seconds (enough for 20 messages with 3s delay)
-			ConnectTimeout: dara.Int(30000),  // 30 seconds
-		},
-		WebSocketPingInterval:      dara.Int(30000), // 30秒心跳
-		WebSocketHandshakeTimeout:  dara.Int(30000), // 30秒握手超时
-		WebSocketWriteTimeout:      dara.Int(30000), // 30秒写入超时
-		WebSocketEnableReconnect:   dara.Bool(true), // 启用重连
-		WebSocketMaxReconnectTimes: dara.Int(5),     // 最多重连5次
-	}
-
 	expectedCount := 20
 	handler := NewSequentialHandler(expectedCount)
+
+	runtime := &dara.RuntimeOptions{
+		ReadTimeout:                dara.Int(120000), // 120 seconds (enough for 20 messages with 3s delay)
+		ConnectTimeout:             dara.Int(30000),  // 30 seconds
+		WebSocketPingInterval:      dara.Int(30000),  // 30秒心跳
+		WebSocketHandshakeTimeout:  dara.Int(30000),  // 30秒握手超时
+		WebSocketWriteTimeout:      dara.Int(30000),  // 30秒写入超时
+		WebSocketEnableReconnect:   dara.Bool(true),  // 启用重连
+		WebSocketMaxReconnectTimes: dara.Int(5),      // 最多重连5次
+		WebSocketHandler:           handler,          // 通过 runtime 配置 handler
+	}
 
 	fmt.Println("Connecting to WebSocket server...")
 	fmt.Printf("Query parameters: delay=%s, batchSendMsgCnt=%s\n",
 		dara.StringValue(request.Query["delay"]),
 		dara.StringValue(request.Query["batchSendMsgCnt"]))
 
-	wsClient, err := apiClient.DoWebSocketRequest(params, request, runtime, handler)
+	result, err := apiClient.DoWebSocketRequest(params, request, runtime)
 	if err != nil {
 		log.Fatalf("Connection failed: %v", err)
 	}
+	wsClient := result["wsClient"].(dara.WebSocketClient)
 	defer wsClient.Close()
 
 	fmt.Println("Connection established, waiting for server to start sending batch messages...")
