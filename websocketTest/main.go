@@ -72,10 +72,10 @@ func runWebsocketTest(ctx *cli.Context, args []string) error {
 	// bodyBytes, _ := GetContentFromApiResponse(response)
 	fmt.Printf("response: %s\n", response["statusCode"])
 
-	// testAwapWebSocket(ctx, args)
+	testAwapWebSocket(ctx, args)
 	testAwapWebSocketWithoutHandleRawMessage(ctx, args) // 新增：不重写 HandleRawMessage 的用例
-	// testGeneralWebSocket(ctx, args)
-	// testSequentialMessageReception(ctx, args)
+	testGeneralWebSocket(ctx, args)
+	testSequentialMessageReception(ctx, args)
 	return nil
 }
 
@@ -103,9 +103,6 @@ func printSessionInfo(session *dara.WebSocketSessionInfo) {
 		return
 	}
 	fmt.Printf("  [Session] ID: %s\n", session.SessionID)
-	if session.RequestID != "" {
-		fmt.Printf("  [Session] RequestID: %s\n", session.RequestID)
-	}
 	fmt.Printf("  [Session] ConnectedAt: %s\n", session.ConnectedAt.Format(time.RFC3339))
 	fmt.Printf("  [Session] RemoteAddr: %s\n", session.RemoteAddr)
 	fmt.Printf("  [Session] LocalAddr: %s\n", session.LocalAddr)
@@ -263,8 +260,8 @@ func testAwapWebSocket(ctx *cli.Context, args []string) error {
 		log.Printf("Failed to send AWAP request: %v", err)
 	}
 
-	// 方法 2: 使用 SendAwapEvent 发送事件消息
-	err = apiClient.SendAwapEvent(wsClient, "msg-002", 2, map[string]interface{}{
+	// 方法 2: 使用 SendAwapRequest 发送请求消息
+	err = apiClient.SendAwapRequest(wsClient, "msg-002", 2, map[string]interface{}{
 		"eventType": "userAction",
 		"message":   "Hello WebSocket!",
 	})
@@ -283,22 +280,37 @@ func testAwapWebSocket(ctx *cli.Context, args []string) error {
 
 	time.Sleep(1 * time.Second)
 
-	// 方法 4: 发送 AckRequiredTextEvent 类型的消息（需要确认的消息）
-	fmt.Println("\n4. Sending AckRequiredTextEvent message...")
-	ackRequiredMsg := apiClient.BuildAwapMessage(dara.AwapMessageTypeAckRequiredTextEvent, "msg-004", 4, map[string]interface{}{
-		"action":    "ackRequiredTest",
-		"data":      "This message requires acknowledgment",
-		"timestamp": time.Now().Unix(),
-	})
-	err = apiClient.SendAwapMessage(wsClient, ackRequiredMsg)
+	// 方法 4: 发送 AckRequiredTextEvent 类型的消息（等待响应）
+	fmt.Println("\n4. Sending AckRequiredTextEvent message and waiting for ACK...")
+	ackResponse, err := apiClient.SendAwapRequestWithAck(
+		wsClient,
+		"msg-004",
+		4,
+		map[string]interface{}{
+			"action":    "ackRequiredTest",
+			"data":      "This message requires acknowledgment",
+			"timestamp": time.Now().Unix(),
+		},
+		30*time.Second, // 超时时间
+	)
 	if err != nil {
-		log.Printf("Failed to send AckRequiredTextEvent message: %v", err)
+		log.Printf("❌ Failed to send AckRequiredTextEvent or timed out waiting for response: %v", err)
 	} else {
-		fmt.Println("✓ AckRequiredTextEvent message sent successfully")
+		fmt.Printf("✅ Received acknowledgment:\n")
+		fmt.Printf("  Response Type: %s\n", ackResponse.Type)
+		if ackResponse.Headers != nil {
+			if ackID, ok := ackResponse.Headers["ack-id"]; ok {
+				fmt.Printf("  Ack-ID: %s\n", ackID)
+			}
+		}
+		if ackResponse.Payload != nil {
+			payloadJSON, _ := json.Marshal(ackResponse.Payload)
+			fmt.Printf("  Payload: %s\n", string(payloadJSON))
+		}
 	}
 
-	// Wait for response
-	time.Sleep(3 * time.Second)
+	// Wait for other responses
+	time.Sleep(2 * time.Second)
 
 	fmt.Println("\n=== AWAP Example Complete ===")
 	return nil
@@ -345,8 +357,6 @@ func (h *GeneralHandler) HandleGeneralIncomingMessage(session *dara.WebSocketSes
 
 func (h *GeneralHandler) HandleRawMessage(session *dara.WebSocketSessionInfo, message *dara.WebSocketMessage) error {
 	// Parse and handle General messages directly
-	// This avoids the issue where AbstractGeneralWebSocketHandler.HandleRawMessage
-	// can't access the outer GeneralHandler type
 	if message.Type == dara.WebSocketMessageTypeText {
 		// Parse as General text message
 		generalMsg, err := dara.ParseGeneralMessage(message)
@@ -548,9 +558,9 @@ func testAwapWebSocketWithoutHandleRawMessage(ctx *cli.Context, args []string) e
 
 	time.Sleep(1 * time.Second)
 
-	// 方法 2: 使用 SendAwapEvent 发送事件消息
-	fmt.Println("2. Sending AWAP event message...")
-	err = apiClient.SendAwapEvent(wsClient, "msg-no-handleraw-002", 2, map[string]interface{}{
+	// 方法 2: 使用 SendAwapRequest 发送请求消息
+	fmt.Println("2. Sending AWAP request message...")
+	err = apiClient.SendAwapRequest(wsClient, "msg-no-handleraw-002", 2, map[string]interface{}{
 		"eventType": "testEvent",
 		"message":   "Testing AwapWebSocketHandler interface usage",
 	})
@@ -561,19 +571,34 @@ func testAwapWebSocketWithoutHandleRawMessage(ctx *cli.Context, args []string) e
 	time.Sleep(1 * time.Second)
 
 	// 方法 3: 发送 AckRequiredTextEvent 类型的消息
-	fmt.Println("3. Sending AckRequiredTextEvent message...")
-	ackRequiredMsg := apiClient.BuildAwapMessage(dara.AwapMessageTypeAckRequiredTextEvent, "msg-no-handleraw-003", 3, map[string]interface{}{
-		"action":    "ackRequiredTest",
-		"data":      "This message requires acknowledgment",
-		"timestamp": time.Now().Unix(),
-	})
-	err = apiClient.SendAwapMessage(wsClient, ackRequiredMsg)
+	fmt.Println("3. Sending AckRequiredTextEvent message (with ACK wait)...")
+	response, err := apiClient.SendAwapRequestWithAck(
+		wsClient,
+		"msg-no-handleraw-003",
+		3,
+		map[string]interface{}{
+			"action":    "ackRequiredTest",
+			"data":      "This message requires acknowledgment",
+			"timestamp": time.Now().Unix(),
+		},
+		30*time.Second, // 30 seconds timeout
+	)
 	if err != nil {
-		log.Printf("Failed to send AckRequiredTextEvent message: %v", err)
+		log.Printf("❌ Failed to send AckRequiredTextEvent or receive response: %v", err)
+	} else {
+		fmt.Printf("✅ Received ACK response:\n")
+		fmt.Printf("  Type: %s\n", response.Type)
+		if response.Headers != nil {
+			fmt.Printf("  Headers: %+v\n", response.Headers)
+		}
+		if response.Payload != nil {
+			payloadJSON, _ := json.Marshal(response.Payload)
+			fmt.Printf("  Payload: %s\n", string(payloadJSON))
+		}
 	}
 
-	// Wait for response
-	fmt.Println("\nWaiting for server responses...")
+	// Wait for other responses
+	fmt.Println("\nWaiting for other server responses...")
 	time.Sleep(3 * time.Second)
 
 	fmt.Println("\n=== NoHandleRawMessage Test Complete ===")
@@ -727,8 +752,6 @@ func (h *SequentialHandler) HandleAwapMessage(session *dara.WebSocketSessionInfo
 
 	fmt.Printf("📨 CLI Sequential Test - HandleAwapMessage called: seq=%d, type=%s, id=%s\n",
 		message.Seq, message.Type, message.ID)
-	printSessionInfo(session)
-
 	// Print message payload for debugging
 	if message.Payload != nil {
 		payloadJSON, _ := json.Marshal(message.Payload)
