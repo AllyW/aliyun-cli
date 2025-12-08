@@ -8,7 +8,7 @@ require (
 	github.com/alibabacloud-go/alibabacloud-gateway-sls v0.3.0
 	github.com/alibabacloud-go/darabonba-openapi/v2 v2.1.12
 	github.com/alibabacloud-go/tea v1.3.13
-	github.com/alibabacloud-go/tea-utils/v2 v2.0.7
+	github.com/alibabacloud-go/tea-utils/v2 v2.0.9
 	github.com/aliyun/alibaba-cloud-sdk-go v1.63.107
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/aliyun/credentials-go v1.4.7
@@ -61,5 +61,3 @@ require (
 replace github.com/alibabacloud-go/darabonba-openapi/v2 => ../darabonba-openapi/golang
 
 replace github.com/alibabacloud-go/tea => ../tea
-
-replace github.com/alibabacloud-go/tea-utils/v2 => ../tea-utils
