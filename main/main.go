@@ -27,6 +27,7 @@ import (
 	go_migrate "github.com/aliyun/aliyun-cli/v3/go-migrate"
 	"github.com/aliyun/aliyun-cli/v3/i18n"
 	"github.com/aliyun/aliyun-cli/v3/mcpproxy"
+	"github.com/aliyun/aliyun-cli/v3/ai"
 	"github.com/aliyun/aliyun-cli/v3/openapi"
 	"github.com/aliyun/aliyun-cli/v3/oss/lib"
 	"github.com/aliyun/aliyun-cli/v3/ossutil"
@@ -83,6 +84,7 @@ func Main(args []string) {
 	rootCmd.AddSubCommand(go_migrate.NewGoMigrateCommand())
 	// new oss command
 	rootCmd.AddSubCommand(ossutil.NewOssutilCommand())
+	rootCmd.AddSubCommand(ai.NewAICommand())
 	// tablestore command
 	rootCmd.AddSubCommand(otsutil.NewOtsutilCommand())
 	if os.Getenv("GENERATE_METADATA") == "YES" {
