@@ -108,8 +108,10 @@ type ProxyConfig struct {
 	ExistMcpServers []MCPServerInfo
 	CallbackManager *OAuthCallbackManager
 	AutoOpenBrowser bool
-	UpstreamBaseURL string // 用户自定义的上游服务器地址，如果为空则使用 EndpointMap 配置
-	OAuthAppName    string // 用户自定义的 OAuth 应用名称，如果为空则使用默认的 OAuth 应用
+	UpstreamBaseURL string   // 用户自定义的上游服务器地址，如果为空则使用 EndpointMap 配置
+	OAuthAppName    string   // 用户自定义的 OAuth 应用名称，如果为空则使用默认的 OAuth 应用
+	AllowedServers  []string // 允许访问的服务器列表（服务器名称、ID 或路径前缀），如果为空则允许所有服务器
+	BlockedServers  []string // 禁止访问的服务器列表（服务器名称、ID 或路径前缀），黑名单优先级高于白名单
 }
 
 type MCPProxy struct {
@@ -121,7 +123,10 @@ type MCPProxy struct {
 	TokenRefresher  *TokenRefresher
 	stopCh          chan struct{}
 	stats           *RuntimeStats
-	UpstreamBaseURL string // 用户自定义的上游服务器地址，如果为空则使用 EndpointMap 配置
+	UpstreamBaseURL string              // 用户自定义的上游服务器地址，如果为空则使用 EndpointMap 配置
+	AllowedServers  []string            // 允许访问的服务器列表（服务器名称、ID 或路径前缀），如果为空则允许所有服务器
+	BlockedServers  []string            // 禁止访问的服务器列表（服务器名称、ID 或路径前缀），黑名单优先级高于白名单
+	serverPaths     map[string][]string // 服务器名称/ID -> 路径列表的映射，启动时构建，避免重复解析
 }
 
 const (
@@ -163,6 +168,25 @@ func NewMCPProxy(config ProxyConfig) *MCPProxy {
 	// 记录启动时的内存状态
 	runtime.ReadMemStats(&stats.InitialMemStats)
 
+	serverPaths := make(map[string][]string)
+	for _, server := range config.ExistMcpServers {
+		var paths []string
+		if server.Urls.MCP != "" {
+			if upstreamURL, err := url.Parse(server.Urls.MCP); err == nil {
+				paths = append(paths, upstreamURL.Path)
+			}
+		}
+		if server.Urls.SSE != "" {
+			if upstreamURL, err := url.Parse(server.Urls.SSE); err == nil {
+				paths = append(paths, upstreamURL.Path)
+			}
+		}
+		if len(paths) > 0 {
+			serverPaths[server.Name] = paths
+			serverPaths[server.Id] = paths
+		}
+	}
+
 	return &MCPProxy{
 		Host:            config.Host,
 		Port:            config.Port,
@@ -184,6 +208,9 @@ func NewMCPProxy(config ProxyConfig) *MCPProxy {
 		stopCh:          make(chan struct{}),
 		stats:           stats,
 		UpstreamBaseURL: config.UpstreamBaseURL,
+		AllowedServers:  config.AllowedServers,
+		BlockedServers:  config.BlockedServers,
+		serverPaths:     serverPaths,
 	}
 }
 
@@ -348,6 +375,24 @@ func (p *MCPProxy) ServeMCPProxyRequest(w http.ResponseWriter, r *http.Request) 
 	default:
 	}
 
+	// 访问控制检查：优先级 黑名单 > 白名单 > 默认允许
+	if len(p.BlockedServers) > 0 {
+		if p.isPathBlocked(path) {
+			log.Printf("MCP Proxy access denied: path %s is in blocked servers list", path)
+			atomic.AddInt64(&p.stats.ErrorRequests, 1)
+			http.Error(w, "Access denied: This MCP server is blocked", http.StatusForbidden)
+			return
+		}
+	}
+	if len(p.AllowedServers) > 0 {
+		if !p.isPathAllowed(path) {
+			log.Printf("MCP Proxy access denied: path %s is not in allowed servers list", path)
+			atomic.AddInt64(&p.stats.ErrorRequests, 1)
+			http.Error(w, "Access denied: This MCP server is not allowed", http.StatusForbidden)
+			return
+		}
+	}
+
 	accessToken, err := p.getMCPAccessToken()
 	if err != nil {
 		atomic.AddInt64(&p.stats.ErrorRequests, 1)
@@ -488,6 +533,132 @@ func (p *MCPProxy) ServeMCPProxyRequest(w http.ResponseWriter, r *http.Request) 
 		atomic.AddInt64(&p.stats.ErrorRequests, 1)
 	}
 
+}
+
+func (p *MCPProxy) isServerBlocked(server MCPServerInfo) bool {
+	// 如果黑名单为空，不阻止任何服务器
+	if len(p.BlockedServers) == 0 {
+		return false
+	}
+
+	paths, exists := p.serverPaths[server.Name]
+	if !exists {
+		paths, exists = p.serverPaths[server.Id]
+	}
+
+	for _, blocked := range p.BlockedServers {
+		if strings.HasPrefix(blocked, "/") {
+			// 检查服务器的 MCP 或 SSE URL 路径是否匹配
+			if exists {
+				for _, path := range paths {
+					if strings.HasPrefix(path, blocked) {
+						return true
+					}
+				}
+			}
+			continue
+		}
+
+		if server.Name == blocked || server.Id == blocked {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *MCPProxy) isPathBlocked(requestPath string) bool {
+	// 如果黑名单为空，不阻止任何路径
+	if len(p.BlockedServers) == 0 {
+		return false
+	}
+
+	for _, blocked := range p.BlockedServers {
+		if strings.HasPrefix(blocked, "/") {
+			if strings.HasPrefix(requestPath, blocked) {
+				return true
+			}
+			continue
+		}
+
+		if paths, exists := p.serverPaths[blocked]; exists {
+			for _, path := range paths {
+				if strings.HasPrefix(requestPath, path) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (p *MCPProxy) isServerAllowed(server MCPServerInfo) bool {
+	// 先检查黑名单（优先级最高）
+	if p.isServerBlocked(server) {
+		return false
+	}
+
+	// 如果白名单为空，允许所有服务器
+	if len(p.AllowedServers) == 0 {
+		return true
+	}
+
+	paths, exists := p.serverPaths[server.Name]
+	if !exists {
+		paths, exists = p.serverPaths[server.Id]
+	}
+
+	for _, allowed := range p.AllowedServers {
+		if strings.HasPrefix(allowed, "/") {
+			// 检查服务器的 MCP 或 SSE URL 路径是否匹配
+			if exists {
+				for _, path := range paths {
+					if strings.HasPrefix(path, allowed) {
+						return true
+					}
+				}
+			}
+			continue
+		}
+
+		if server.Name == allowed || server.Id == allowed {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *MCPProxy) isPathAllowed(requestPath string) bool {
+	// 先检查黑名单（优先级最高）
+	if p.isPathBlocked(requestPath) {
+		return false
+	}
+
+	// 如果白名单为空，允许所有路径
+	if len(p.AllowedServers) == 0 {
+		return true
+	}
+
+	for _, allowed := range p.AllowedServers {
+		if strings.HasPrefix(allowed, "/") {
+			if strings.HasPrefix(requestPath, allowed) {
+				return true
+			}
+			continue
+		}
+
+		if paths, exists := p.serverPaths[allowed]; exists {
+			for _, path := range paths {
+				if strings.HasPrefix(requestPath, path) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 func (p *MCPProxy) getMCPAccessToken() (string, error) {

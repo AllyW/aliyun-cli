@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/aliyun/aliyun-cli/v3/cli"
@@ -106,6 +107,22 @@ func NewMCPProxyCommand() *cli.Command {
 		),
 	})
 
+	cmd.Flags().Add(&cli.Flag{
+		Name: "allowed-servers",
+		Short: i18n.T(
+			"Comma-separated list of allowed MCP server names, IDs, or path prefixes (e.g., 'server1,server2' or '/mcp/server1,/mcp/server2'). If not specified, all servers are allowed.",
+			"允许访问的 MCP 服务器列表，用逗号分隔（可以是服务器名称、ID 或路径前缀，如 'server1,server2' 或 '/mcp/server1,/mcp/server2'）。如果不指定，则允许访问所有服务器。",
+		),
+	})
+
+	cmd.Flags().Add(&cli.Flag{
+		Name: "blocked-servers",
+		Short: i18n.T(
+			"Comma-separated list of blocked MCP server names, IDs, or path prefixes (e.g., 'server1,server2' or '/mcp/server1,/mcp/server2'). Blacklist takes precedence over whitelist.",
+			"禁止访问的 MCP 服务器列表，用逗号分隔（可以是服务器名称、ID 或路径前缀，如 'server1,server2' 或 '/mcp/server1,/mcp/server2'）。黑名单优先级高于白名单。",
+		),
+	})
+
 	return cmd
 }
 
@@ -142,6 +159,32 @@ func runMCPProxy(ctx *cli.Context) error {
 	scope := ctx.Flags().Get("scope").GetStringOrDefault("/acs/mcp-server")
 	upstreamURL := ctx.Flags().Get("upstream-url").GetStringOrDefault("")
 	oauthAppName := ctx.Flags().Get("oauth-app-name").GetStringOrDefault("")
+	allowedServersStr := ctx.Flags().Get("allowed-servers").GetStringOrDefault("")
+	blockedServersStr := ctx.Flags().Get("blocked-servers").GetStringOrDefault("")
+
+	// 解析允许的服务器列表
+	var allowedServers []string
+	if allowedServersStr != "" {
+		parts := strings.Split(allowedServersStr, ",")
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				allowedServers = append(allowedServers, trimmed)
+			}
+		}
+	}
+
+	// 解析禁止的服务器列表
+	var blockedServers []string
+	if blockedServersStr != "" {
+		parts := strings.Split(blockedServersStr, ",")
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			if trimmed != "" {
+				blockedServers = append(blockedServers, trimmed)
+			}
+		}
+	}
 
 	proxyConfig := ProxyConfig{
 		Host:            host,
@@ -151,6 +194,8 @@ func runMCPProxy(ctx *cli.Context) error {
 		AutoOpenBrowser: !noBrowser,
 		UpstreamBaseURL: upstreamURL,
 		OAuthAppName:    oauthAppName,
+		AllowedServers:  allowedServers,
+		BlockedServers:  blockedServers,
 	}
 
 	mcpProfile, err := getOrCreateMCPProfile(ctx, proxyConfig)
@@ -223,9 +268,41 @@ func printProxyInfo(ctx *cli.Context, proxy *MCPProxy) {
 	cli.Printf(ctx.Stdout(), "\nMCP Proxy Server Started\nListen: %s:%d\nRegion: %s\n",
 		proxy.Host, proxy.Port, proxy.RegionType)
 
+	hasAccessControl := len(proxy.BlockedServers) > 0 || len(proxy.AllowedServers) > 0
+	if hasAccessControl {
+		cli.Println(ctx.Stdout(), "\nAccess Control:")
+		if len(proxy.BlockedServers) > 0 {
+			cli.Printf(ctx.Stdout(), "  Blacklist (blocked servers):\n")
+			for _, blocked := range proxy.BlockedServers {
+				cli.Printf(ctx.Stdout(), "    - %s\n", blocked)
+			}
+		}
+		if len(proxy.AllowedServers) > 0 {
+			cli.Printf(ctx.Stdout(), "  Whitelist (allowed servers):\n")
+			for _, allowed := range proxy.AllowedServers {
+				cli.Printf(ctx.Stdout(), "    - %s\n", allowed)
+			}
+		}
+		if len(proxy.BlockedServers) == 0 && len(proxy.AllowedServers) == 0 {
+			cli.Println(ctx.Stdout(), "  All servers are allowed")
+		}
+	} else {
+		cli.Println(ctx.Stdout(), "\nAccess Control: All servers are allowed")
+	}
+
 	cli.Println(ctx.Stdout(), "\nAvailable Servers:")
 	for _, server := range proxy.ExistMcpServers {
-		cli.Printf(ctx.Stdout(), "  - %s\n", server.Name)
+		isAllowed := proxy.isServerAllowed(server)
+		isBlocked := proxy.isServerBlocked(server)
+
+		status := ""
+		if isBlocked {
+			status = " (blocked)"
+		} else if !isAllowed && len(proxy.AllowedServers) > 0 {
+			status = " (not in whitelist)"
+		}
+
+		cli.Printf(ctx.Stdout(), "  - %s%s\n", server.Name, status)
 		if server.Urls.MCP != "" {
 			if upstreamURL, err := url.Parse(server.Urls.MCP); err == nil {
 				cli.Printf(ctx.Stdout(), "    MCP: http://%s:%d%s\n", proxy.Host, proxy.Port, upstreamURL.Path)
