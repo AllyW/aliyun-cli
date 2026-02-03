@@ -329,6 +329,23 @@ func (c *Command) executeInner(ctx *Context, args []string) error {
 
 func (c *Command) processError(ctx *Context, err error) {
 	Errorf(ctx.Stderr(), "ERROR: %s\n", err.Error())
+
+	if ctx != nil {
+		aiModeFlag := ctx.Flags().Get("ai-mode")
+		if aiModeFlag != nil && aiModeFlag.IsAssigned() {
+			// Extract RequestId from error message if present
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "RequestId") || strings.Contains(errMsg, "request-id") || strings.Contains(errMsg, "requestId") {
+				Noticef(ctx.Stderr(), "\n[AI Mode] RequestId detected in error. Use this RequestId for:\n")
+				Noticef(ctx.Stderr(), "  - Querying logs: Search logs using this RequestId\n")
+				Noticef(ctx.Stderr(), "  - Support tickets: Include RequestId for faster resolution\n")
+				Noticef(ctx.Stderr(), "  - Distributed tracing: Correlate logs across services\n")
+			}
+		} else {
+			Noticef(ctx.Stderr(), "\n💡 Tip: Use --ai-mode flag to get enhanced diagnostic information and RequestId-based troubleshooting guidance.\n")
+		}
+	}
+
 	if e, ok := err.(SuggestibleError); ok {
 		PrintSuggestions(ctx, i18n.GetLanguage(), e.GetSuggestions())
 		Exit(2)

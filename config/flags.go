@@ -50,6 +50,7 @@ const (
 	CloudSSOAccountIdFlagName    = "cloud-sso-account-id"
 	OAuthSiteTypeName            = "oauth-site-type"
 	EndpointTypeFlagName         = "endpoint-type"
+	AiModeFlagName               = "ai-mode"
 )
 
 func AddFlags(fs *cli.FlagSet) {
@@ -83,6 +84,7 @@ func AddFlags(fs *cli.FlagSet) {
 	fs.Add(NewCloudSSOAccountIdFlag())
 	fs.Add(NewOAuthSiteTypeFlag())
 	fs.Add(NewEndpointTypeFlag())
+	fs.Add(NewAiModeFlag())
 }
 
 func ConnectTimeoutFlag(fs *cli.FlagSet) *cli.Flag {
@@ -546,4 +548,20 @@ func NewEndpointTypeFlag() *cli.Flag {
 			"use `--endpoint-type` to specify the endpoint type, support vpc or empty (default public)",
 			"使用 `--endpoint-type` 指定 endpoint 类型, 支持 vpc 或空值(默认公网)"),
 	}
+}
+
+func NewAiModeFlag() *cli.Flag {
+	return &cli.Flag{
+		Category:     "caller",
+		Name:         AiModeFlagName,
+		AssignedMode: cli.AssignedNone,
+		Persistent:   true,
+		Short: i18n.T(
+			"use `--ai-mode` to enable AI-friendly output with additional diagnostic information",
+			"使用 `--ai-mode` 启用AI友好输出，包含额外的诊断信息"),
+	}
+}
+
+func AiModeFlag(fs *cli.FlagSet) *cli.Flag {
+	return fs.Get(AiModeFlagName)
 }
