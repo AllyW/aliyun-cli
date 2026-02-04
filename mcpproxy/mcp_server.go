@@ -594,11 +594,6 @@ func (p *MCPProxy) isPathBlocked(requestPath string) bool {
 }
 
 func (p *MCPProxy) isServerAllowed(server MCPServerInfo) bool {
-	// 先检查黑名单（优先级最高）
-	if p.isServerBlocked(server) {
-		return false
-	}
-
 	// 如果白名单为空，允许所有服务器
 	if len(p.AllowedServers) == 0 {
 		return true
@@ -631,11 +626,6 @@ func (p *MCPProxy) isServerAllowed(server MCPServerInfo) bool {
 }
 
 func (p *MCPProxy) isPathAllowed(requestPath string) bool {
-	// 先检查黑名单（优先级最高）
-	if p.isPathBlocked(requestPath) {
-		return false
-	}
-
 	// 如果白名单为空，允许所有路径
 	if len(p.AllowedServers) == 0 {
 		return true

@@ -162,7 +162,6 @@ func runMCPProxy(ctx *cli.Context) error {
 	allowedServersStr := ctx.Flags().Get("allowed-servers").GetStringOrDefault("")
 	blockedServersStr := ctx.Flags().Get("blocked-servers").GetStringOrDefault("")
 
-	// 解析允许的服务器列表
 	var allowedServers []string
 	if allowedServersStr != "" {
 		parts := strings.Split(allowedServersStr, ",")
@@ -174,7 +173,6 @@ func runMCPProxy(ctx *cli.Context) error {
 		}
 	}
 
-	// 解析禁止的服务器列表
 	var blockedServers []string
 	if blockedServersStr != "" {
 		parts := strings.Split(blockedServersStr, ",")
@@ -292,14 +290,17 @@ func printProxyInfo(ctx *cli.Context, proxy *MCPProxy) {
 
 	cli.Println(ctx.Stdout(), "\nAvailable Servers:")
 	for _, server := range proxy.ExistMcpServers {
-		isAllowed := proxy.isServerAllowed(server)
 		isBlocked := proxy.isServerBlocked(server)
 
 		status := ""
 		if isBlocked {
 			status = " (blocked)"
-		} else if !isAllowed && len(proxy.AllowedServers) > 0 {
-			status = " (not in whitelist)"
+		} else if len(proxy.AllowedServers) > 0 {
+			// 只有在没有被阻止的情况下才检查白名单
+			isAllowed := proxy.isServerAllowed(server)
+			if !isAllowed {
+				status = " (not in whitelist)"
+			}
 		}
 
 		cli.Printf(ctx.Stdout(), "  - %s%s\n", server.Name, status)
