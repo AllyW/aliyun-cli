@@ -78,6 +78,180 @@ func TestNewMCPProxy(t *testing.T) {
 	assert.Equal(t, autoOpenBrowser, proxy.TokenRefresher.autoOpenBrowser)
 }
 
+func TestNewMCPProxy_ServerPathsMapping(t *testing.T) {
+	tests := []struct {
+		name    string
+		servers []MCPServerInfo
+		want    map[string][]string // server name/id -> expected paths
+	}{
+		{
+			name: "server with both MCP and SSE URLs",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server1-id",
+					Name: "server1",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server1",
+						SSE: "https://example.com/sse/server1",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server1":    {"/mcp/server1", "/sse/server1"},
+				"server1-id": {"/mcp/server1", "/sse/server1"},
+			},
+		},
+		{
+			name: "server with only MCP URL",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server2-id",
+					Name: "server2",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server2",
+						SSE: "",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server2":    {"/mcp/server2"},
+				"server2-id": {"/mcp/server2"},
+			},
+		},
+		{
+			name: "server with only SSE URL",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server3-id",
+					Name: "server3",
+					Urls: MCPInfoUrls{
+						MCP: "",
+						SSE: "https://example.com/sse/server3",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server3":    {"/sse/server3"},
+				"server3-id": {"/sse/server3"},
+			},
+		},
+		{
+			name: "server with no URLs",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server4-id",
+					Name: "server4",
+					Urls: MCPInfoUrls{
+						MCP: "",
+						SSE: "",
+					},
+				},
+			},
+			want: map[string][]string{},
+		},
+		{
+			name: "multiple servers",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server5-id",
+					Name: "server5",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server5",
+						SSE: "https://example.com/sse/server5",
+					},
+				},
+				{
+					Id:   "server6-id",
+					Name: "server6",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server6",
+						SSE: "",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server5":    {"/mcp/server5", "/sse/server5"},
+				"server5-id": {"/mcp/server5", "/sse/server5"},
+				"server6":    {"/mcp/server6"},
+				"server6-id": {"/mcp/server6"},
+			},
+		},
+		{
+			name: "server with invalid URL",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server7-id",
+					Name: "server7",
+					Urls: MCPInfoUrls{
+						MCP: "://invalid-url",
+						SSE: "https://example.com/sse/server7",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server7":    {"/sse/server7"},
+				"server7-id": {"/sse/server7"},
+			},
+		},
+		{
+			name: "server with root path",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server8-id",
+					Name: "server8",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/",
+						SSE: "https://example.com/",
+					},
+				},
+			},
+			want: map[string][]string{
+				"server8":    {"/", "/"},
+				"server8-id": {"/", "/"},
+			},
+		},
+		{
+			name:    "empty servers list",
+			servers: []MCPServerInfo{},
+			want:    map[string][]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := ProxyConfig{
+				Host:            "127.0.0.1",
+				Port:            8088,
+				RegionType:      RegionCN,
+				Scope:           "/acs/mcp-server",
+				McpProfile:      NewMcpProfile("test-profile"),
+				ExistMcpServers: tt.servers,
+				CallbackManager: NewOAuthCallbackManager(),
+				AutoOpenBrowser: false,
+				UpstreamBaseURL: "",
+			}
+
+			proxy := NewMCPProxy(config)
+
+			// Verify serverPaths mapping
+			assert.NotNil(t, proxy.serverPaths)
+			assert.Equal(t, len(tt.want), len(proxy.serverPaths), "serverPaths map size mismatch")
+
+			for key, expectedPaths := range tt.want {
+				actualPaths, exists := proxy.serverPaths[key]
+				assert.True(t, exists, "serverPaths should contain key: %s", key)
+				assert.Equal(t, expectedPaths, actualPaths, "paths mismatch for key: %s", key)
+			}
+
+			// Verify that no unexpected keys exist
+			for key := range proxy.serverPaths {
+				_, exists := tt.want[key]
+				assert.True(t, exists, "unexpected key in serverPaths: %s", key)
+			}
+		})
+	}
+}
+
 func TestMCPProxy_Stop(t *testing.T) {
 	config := ProxyConfig{
 		Host:            "127.0.0.1",
@@ -203,6 +377,273 @@ func TestMCPProxy_ServeHTTP_ShuttingDown(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	assert.Contains(t, w.Body.String(), "Server is shutting down")
 	assert.Equal(t, int64(1), atomic.LoadInt64(&proxy.stats.ErrorRequests))
+}
+
+func TestMCPProxy_ServeMCPProxyRequest_AccessControl(t *testing.T) {
+	tests := []struct {
+		name           string
+		servers        []MCPServerInfo
+		blockedServers []string
+		allowedServers []string
+		requestPath    string
+		shouldBlock    bool // true if request should be blocked by access control
+		expectedBody   string
+	}{
+		{
+			name: "path blocked by blacklist (server name)",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server1-id",
+					Name: "server1",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server1",
+						SSE: "https://example.com/sse/server1",
+					},
+				},
+			},
+			blockedServers: []string{"server1"},
+			allowedServers: []string{},
+			requestPath:    "/mcp/server1/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is blocked",
+		},
+		{
+			name: "path blocked by blacklist (server ID)",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server1-id",
+					Name: "server1",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server1",
+					},
+				},
+			},
+			blockedServers: []string{"server1-id"},
+			allowedServers: []string{},
+			requestPath:    "/mcp/server1/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is blocked",
+		},
+		{
+			name: "path blocked by path prefix in blacklist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server2-id",
+					Name: "server2",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server2",
+					},
+				},
+			},
+			blockedServers: []string{"/mcp/server2"},
+			allowedServers: []string{},
+			requestPath:    "/mcp/server2/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is blocked",
+		},
+		{
+			name: "path not in whitelist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server3-id",
+					Name: "server3",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server3",
+					},
+				},
+				{
+					Id:   "server4-id",
+					Name: "server4",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server4",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"server3"},
+			requestPath:    "/mcp/server4/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is not allowed",
+		},
+		{
+			name: "path allowed by whitelist (server name)",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server5-id",
+					Name: "server5",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server5",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"server5"},
+			requestPath:    "/mcp/server5/tools",
+			shouldBlock:    false, // Access control passes, will continue to upstream
+			expectedBody:   "",
+		},
+		{
+			name: "path allowed by whitelist (server ID)",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server5-id",
+					Name: "server5",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server5",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"server5-id"},
+			requestPath:    "/mcp/server5/tools",
+			shouldBlock:    false,
+			expectedBody:   "",
+		},
+		{
+			name: "blacklist takes precedence over whitelist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server6-id",
+					Name: "server6",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server6",
+					},
+				},
+			},
+			blockedServers: []string{"server6"},
+			allowedServers: []string{"server6"},
+			requestPath:    "/mcp/server6/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is blocked",
+		},
+		{
+			name: "no access control - default allow",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server7-id",
+					Name: "server7",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server7",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{},
+			requestPath:    "/mcp/server7/tools",
+			shouldBlock:    false, // No access control, default allow
+			expectedBody:   "",
+		},
+		{
+			name: "path prefix matching in whitelist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server8-id",
+					Name: "server8",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server8",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"/mcp/server8"},
+			requestPath:    "/mcp/server8/tools",
+			shouldBlock:    false,
+			expectedBody:   "",
+		},
+		{
+			name: "path prefix not matching in whitelist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server9-id",
+					Name: "server9",
+					Urls: MCPInfoUrls{
+						MCP: "https://example.com/mcp/server9",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"/mcp/server10"},
+			requestPath:    "/mcp/server9/tools",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is not allowed",
+		},
+		{
+			name: "SSE path blocked by blacklist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server10-id",
+					Name: "server10",
+					Urls: MCPInfoUrls{
+						SSE: "https://example.com/sse/server10",
+					},
+				},
+			},
+			blockedServers: []string{"server10"},
+			allowedServers: []string{},
+			requestPath:    "/sse/server10/stream",
+			shouldBlock:    true,
+			expectedBody:   "Access denied: This MCP server is blocked",
+		},
+		{
+			name: "SSE path allowed by whitelist",
+			servers: []MCPServerInfo{
+				{
+					Id:   "server11-id",
+					Name: "server11",
+					Urls: MCPInfoUrls{
+						SSE: "https://example.com/sse/server11",
+					},
+				},
+			},
+			blockedServers: []string{},
+			allowedServers: []string{"server11"},
+			requestPath:    "/sse/server11/stream",
+			shouldBlock:    false,
+			expectedBody:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile := NewMcpProfile("test-profile")
+			profile.MCPOAuthAccessToken = "test-token"
+			profile.MCPOAuthAccessTokenExpire = time.Now().Unix() + 3600
+
+			config := ProxyConfig{
+				Host:            "127.0.0.1",
+				Port:            8088,
+				RegionType:      RegionCN,
+				Scope:           "/acs/mcp-server",
+				McpProfile:      profile,
+				ExistMcpServers: tt.servers,
+				CallbackManager: NewOAuthCallbackManager(),
+				AutoOpenBrowser: false,
+				UpstreamBaseURL: "",
+				BlockedServers:  tt.blockedServers,
+				AllowedServers:  tt.allowedServers,
+			}
+
+			proxy := NewMCPProxy(config)
+
+			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			w := httptest.NewRecorder()
+
+			initialErrorCount := atomic.LoadInt64(&proxy.stats.ErrorRequests)
+
+			proxy.ServeMCPProxyRequest(w, req)
+
+			if tt.shouldBlock {
+				// Should be blocked by access control
+				assert.Equal(t, http.StatusForbidden, w.Code, "status code should be 403 Forbidden for test: %s", tt.name)
+				assert.Contains(t, w.Body.String(), tt.expectedBody, "response body mismatch for test: %s", tt.name)
+				assert.Greater(t, atomic.LoadInt64(&proxy.stats.ErrorRequests), initialErrorCount, "error count should be incremented for denied request")
+			} else {
+				// Should pass access control (may fail later at upstream, but access control passed)
+				assert.NotEqual(t, http.StatusForbidden, w.Code, "status code should not be 403 Forbidden for test: %s (access control should pass)", tt.name)
+				assert.NotContains(t, w.Body.String(), "Access denied", "response should not contain access denied message for test: %s", tt.name)
+			}
+		})
+	}
 }
 
 func TestMCPProxy_buildUpstreamRequest(t *testing.T) {
