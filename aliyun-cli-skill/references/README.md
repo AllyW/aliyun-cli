@@ -5,7 +5,7 @@
 ## 文档列表
 
 ### 1. plugin-advantages.md
-**插件 CLI 优势速查**
+**CLI 产品插件优势速查**
 
 涵盖内容：
 - 统一参数输入
@@ -21,7 +21,7 @@
 - 准备从旧版迁移
 
 ### 2. command-syntax.md
-**命令语法完整指南**
+**产品插件命令语法完整指南**
 
 涵盖内容：
 - 基础命令结构
@@ -37,7 +37,7 @@
 - 调试命令问题
 
 ### 3. global-flags.md
-**全局参数完整参考**
+**产品插件全局参数完整参考**
 
 涵盖内容：
 - 所有可见全局参数（--log-level, --cli-dry-run, --cli-query等）
@@ -51,7 +51,7 @@
 - 学习高级功能（--pager, --waiter）
 
 ### 4. common-scenarios.md
-**10 个常见场景**
+**产品插件10 个常见场景**
 
 涵盖场景：
 1. 实例管理（列出、过滤、批量操作）
@@ -111,7 +111,7 @@ grep -r "multi-version" references/
 
 **快速跳转：**
 - [插件优势](./plugin-advantages.md)
-- [命令语法](./command-syntax.md)
-- [全局参数](./global-flags.md) ⭐ 新增
-- [常见场景](./common-scenarios.md)
+- [插件命令语法](./command-syntax.md)
+- [插件全局参数](./global-flags.md) ⭐ 新增
+- [插件常见场景](./common-scenarios.md)
 - [返回 Skill 主页](../README.md)
