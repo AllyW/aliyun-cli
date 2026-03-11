@@ -112,6 +112,6 @@ grep -r "multi-version" references/
 **快速跳转：**
 - [插件优势](./plugin-advantages.md)
 - [插件命令语法](./command-syntax.md)
-- [插件全局参数](./global-flags.md) ⭐ 新增
+- [插件全局参数](./global-flags.md)
 - [插件常见场景](./common-scenarios.md)
 - [返回 Skill 主页](../README.md)
