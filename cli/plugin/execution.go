@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/aliyun/aliyun-cli/v3/cli"
+	"github.com/aliyun/aliyun-cli/v3/config"
 )
 
 // IsPluginInstalled checks if a plugin is installed locally.
@@ -81,7 +83,7 @@ func ExecutePlugin(command string, args []string, ctx *cli.Context) (bool, error
 		envs = mergeEnvs(envs, ctx.GetRuntimeEnvs())
 	}
 
-	if err := runPluginCommand(binPath, adjustedArgs, stdout, stderr, envs); err != nil {
+	if err := runPluginCommand(binPath, adjustedArgs, stdout, stderr, envs, ctx); err != nil {
 		return true, err
 	}
 
@@ -163,20 +165,38 @@ func resolvePluginBinaryPath(plugin *LocalPlugin) (string, error) {
 	return binPath, nil
 }
 
-func runPluginCommand(binPath string, args []string, stdout io.Writer, stderr io.Writer, envs []string) error {
+func runPluginCommand(binPath string, args []string, stdout io.Writer, stderr io.Writer, envs []string, ctx *cli.Context) error {
 	if binPath == "" {
 		return fmt.Errorf("binary path is empty")
 	}
 
+	stdoutW := stdout
+	stderrW := stderr
+	var outBuf, errBuf bytes.Buffer
+	if ctx != nil {
+		if s, e := config.LoadExecutionLoggingSettings(); e == nil && s.Enabled && s.RecordResponse {
+			stdoutW = io.MultiWriter(stdout, &outBuf)
+			stderrW = io.MultiWriter(stderr, &errBuf)
+		}
+	}
+
 	cmd := exec.Command(binPath, args...)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 	cmd.Env = envs
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	config.CapturePluginStreamsForExecutionLog(ctx, outBuf.String(), errBuf.String())
+
+	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitError.ExitCode())
+			code := exitError.ExitCode()
+			auditArgs := os.Args[1:]
+			if len(auditArgs) > 0 {
+				config.LogExecutionIfEnabledWithExitCode(ctx, auditArgs, code, err)
+			}
+			os.Exit(code)
 		}
 		return fmt.Errorf("plugin execution failed: %w", err)
 	}

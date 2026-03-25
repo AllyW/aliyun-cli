@@ -67,6 +67,7 @@ func Main(args []string) {
 
 	ctx := cli.NewCommandContext(stdout, stderr)
 	ctx.EnterCommand(rootCmd)
+	cli.SetPostExecuteHook(config.LogExecutionIfEnabled)
 	ctx.SetCompletion(cli.ParseCompletionForShell())
 	ctx.SetInConfigureMode(openapi.DetectInConfigureMode(ctx.Flags()))
 	// use http force, current use in oss bridge

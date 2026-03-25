@@ -54,6 +54,10 @@ type Context struct {
 	// use http instead of https
 	insecure    bool
 	runtimeEnvs map[string]string
+	// execution audit (optional): final API/body text written before root post-execute hook
+	executionLogResponse string
+	// plugin subprocess capture when record_response is enabled
+	executionLogPluginStderr string
 }
 
 func (ctx *Context) Insecure() bool {
@@ -233,6 +237,27 @@ func isPluginSubCommandArgs(args []string) bool {
 
 func (ctx *Context) SetInConfigureMode(mode bool) {
 	ctx.inConfigureMode = mode
+}
+
+// SetExecutionLogResponse stores body text for execution logging (e.g. API JSON after filters).
+// Used when execution_logging.json has record_response enabled; may be truncated by config.
+func (ctx *Context) SetExecutionLogResponse(body string) {
+	ctx.executionLogResponse = body
+}
+
+// ExecutionLogResponse returns captured response body for the execution log writer.
+func (ctx *Context) ExecutionLogResponse() string {
+	return ctx.executionLogResponse
+}
+
+// SetExecutionLogPluginStderr stores plugin subprocess stderr text for execution logging.
+func (ctx *Context) SetExecutionLogPluginStderr(s string) {
+	ctx.executionLogPluginStderr = s
+}
+
+// ExecutionLogPluginStderr returns captured plugin stderr for the execution log writer.
+func (ctx *Context) ExecutionLogPluginStderr() string {
+	return ctx.executionLogPluginStderr
 }
 
 func (ctx *Context) SetCommand(cmd *Command) {
