@@ -175,6 +175,7 @@ func NewConfigureCommand() *cli.Command {
 	c.AddSubCommand(NewConfigureSafetyPolicyCommand())
 	c.AddSubCommand(NewConfigureAiModeCommand())
 	c.AddSubCommand(NewConfigurePluginSettingsCommand())
+	c.AddSubCommand(NewConfigureExecutionLogCommand())
 	return c
 }
 

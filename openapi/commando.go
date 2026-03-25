@@ -503,11 +503,6 @@ func (c *Commando) processApiInvoke(ctx *cli.Context, product *meta.Product, api
 		return nil
 	}
 
-	// if `--quiet` assigned. do not print anything
-	if QuietFlag(ctx.Flags()).IsAssigned() {
-		return nil
-	}
-
 	if QueryFlag(ctx.Flags()).IsAssigned() {
 		out, err = ApplyQueryFilter(ctx, out)
 		if err != nil {
@@ -522,7 +517,10 @@ func (c *Commando) processApiInvoke(ctx *cli.Context, product *meta.Product, api
 		}
 	}
 	out = sortJSON(out)
-	cli.Println(ctx.Stdout(), out)
+	config.CaptureResponseForExecutionLog(ctx, out)
+	if !QuietFlag(ctx.Flags()).IsAssigned() {
+		cli.Println(ctx.Stdout(), out)
+	}
 	return nil
 }
 
@@ -573,11 +571,6 @@ func (c *Commando) processInvoke(ctx *cli.Context, productCode string, apiOrMeth
 		out = resp.GetHttpContentString()
 	}
 
-	// if `--quiet` assigned. do not print anything
-	if QuietFlag(ctx.Flags()).IsAssigned() {
-		return nil
-	}
-
 	if QueryFlag(ctx.Flags()).IsAssigned() {
 		out, err = ApplyQueryFilter(ctx, out)
 		if err != nil {
@@ -594,8 +587,10 @@ func (c *Commando) processInvoke(ctx *cli.Context, productCode string, apiOrMeth
 	}
 
 	out = sortJSON(out)
-
-	cli.Println(ctx.Stdout(), out)
+	config.CaptureResponseForExecutionLog(ctx, out)
+	if !QuietFlag(ctx.Flags()).IsAssigned() {
+		cli.Println(ctx.Stdout(), out)
+	}
 	return nil
 }
 

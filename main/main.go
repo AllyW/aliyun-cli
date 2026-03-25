@@ -17,11 +17,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/aliyun/aliyun-cli/v3/cliext/kmscli"
 	"io"
 	"os"
 	"path"
 	"strings"
+
+	"github.com/aliyun/aliyun-cli/v3/cliext/kmscli"
 
 	"github.com/aliyun/aliyun-cli/v3/agentbay"
 	aliyunopenapimeta "github.com/aliyun/aliyun-cli/v3/aliyun-openapi-meta"
@@ -116,6 +117,15 @@ func newRootCommand(profile config.Profile, stdout io.Writer) *cli.Command {
 	// new open api commando to process rootCmd
 	commando := openapi.NewCommando(stdout, profile)
 	commando.InitWithCommand(rootCmd)
+
+	ctx := cli.NewCommandContext(stdout, stderr)
+	ctx.EnterCommand(rootCmd)
+	cli.SetPostExecuteHook(config.LogExecutionIfEnabled)
+	ctx.SetCompletion(cli.ParseCompletionForShell())
+	ctx.SetInConfigureMode(openapi.DetectInConfigureMode(ctx.Flags()))
+	// use http force, current use in oss bridge
+	insecure, _ := ParseInSecure(args)
+	ctx.SetInsecure(insecure)
 
 	rootCmd.AddSubCommand(config.NewConfigureCommand())
 	// oss old version, duplicate with ossutil, will remove in future
