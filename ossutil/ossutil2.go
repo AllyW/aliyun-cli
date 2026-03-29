@@ -2,6 +2,7 @@ package ossutil
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -156,12 +157,22 @@ func (c *Context) Run(args []string) error {
 		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}
 	cmd.Env = envs
-	cmd.Stdout = c.originCtx.Stdout()
-	cmd.Stderr = c.originCtx.Stderr()
+	stdoutW := c.originCtx.Stdout()
+	stderrW := c.originCtx.Stderr()
+	var outBuf, errBuf bytes.Buffer
+	if c.originCtx != nil {
+		if s, e := config.LoadExecutionLoggingSettings(); e == nil && s.Enabled && s.RecordResponse {
+			stdoutW = io.MultiWriter(c.originCtx.Stdout(), &outBuf)
+			stderrW = io.MultiWriter(c.originCtx.Stderr(), &errBuf)
+		}
+	}
+	cmd.Stdout = stdoutW
+	cmd.Stderr = stderrW
 	// 关键: 透传 stdin, 以便 `aliyun ossutil cp - oss://...` 能从上游管道读取数据
 	cmd.Stdin = os.Stdin
 	// exec
 	err = cmd.Run()
+	config.CapturePluginStreamsForExecutionLog(c.originCtx, outBuf.String(), errBuf.String())
 	if err != nil {
 		return fmt.Errorf("failed to execute %s %v: %v", c.execFilePath, newArgs, err)
 	}
