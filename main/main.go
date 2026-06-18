@@ -85,6 +85,8 @@ func Main(args []string) {
 
 	rootCmd := newRootCommand(profile, stdout)
 
+	cli.SetPostExecuteHook(config.LogExecutionIfEnabled)
+
 	ctx := cli.NewCommandContext(stdout, stderr)
 	ctx.EnterCommand(rootCmd)
 	ctx.SetCompletion(cli.ParseCompletionForShell())
@@ -96,6 +98,7 @@ func Main(args []string) {
 	if os.Getenv("GENERATE_METADATA") == "YES" {
 		generateMetadata(rootCmd)
 	} else {
+		ctx.MarkExecutionStart()
 		rootCmd.Execute(ctx, args)
 	}
 }
@@ -117,15 +120,6 @@ func newRootCommand(profile config.Profile, stdout io.Writer) *cli.Command {
 	// new open api commando to process rootCmd
 	commando := openapi.NewCommando(stdout, profile)
 	commando.InitWithCommand(rootCmd)
-
-	ctx := cli.NewCommandContext(stdout, stderr)
-	ctx.EnterCommand(rootCmd)
-	cli.SetPostExecuteHook(config.LogExecutionIfEnabled)
-	ctx.SetCompletion(cli.ParseCompletionForShell())
-	ctx.SetInConfigureMode(openapi.DetectInConfigureMode(ctx.Flags()))
-	// use http force, current use in oss bridge
-	insecure, _ := ParseInSecure(args)
-	ctx.SetInsecure(insecure)
 
 	rootCmd.AddSubCommand(config.NewConfigureCommand())
 	// oss old version, duplicate with ossutil, will remove in future

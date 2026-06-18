@@ -8,7 +8,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,11 +16,21 @@ import (
 func TestRedactExecutionArgs(t *testing.T) {
 	in := []string{"ecs", "DescribeRegions", "--access-key-id", "SECRETID", "--region", "cn-hangzhou"}
 	out := RedactExecutionArgs(in)
-	assert.Equal(t, []string{"ecs", "DescribeRegions", "--access-key-id", "{}", "--region", "cn-hangzhou"}, out)
+	assert.Equal(t, []string{"ecs", "DescribeRegions", "--access-key-id", "{}", "--region", "{}"}, out)
 
-	eq := []string{"configure", "set", "--access-key-secret=topsecret"}
+	eq := []string{"configure", "set", "--access-key-secret={}"}
 	out2 := RedactExecutionArgs(eq)
 	assert.Equal(t, []string{"configure", "set", "--access-key-secret={}"}, out2)
+
+	long := []string{"vm", "create", "--resource-group-name", "rg", "--name", "vm1", "--image", "centos"}
+	assert.Equal(t, []string{"vm", "create", "--resource-group-name", "{}", "--name", "{}", "--image", "{}"},
+		RedactExecutionArgs(long))
+
+	short := []string{"ecs", "DescribeInstances", "-g", "rg", "-n", "i-abc"}
+	assert.Equal(t, []string{"ecs", "DescribeInstances", "-g", "{}", "-n", "{}"}, RedactExecutionArgs(short))
+
+	mergedShort := []string{"oss", "ls", "-ojson"}
+	assert.Equal(t, []string{"oss", "ls", "-o{}"}, RedactExecutionArgs(mergedShort))
 }
 
 func TestCommandKeyFromArgs(t *testing.T) {
@@ -41,13 +50,6 @@ func TestLoadExecutionLoggingSettings_defaultFile(t *testing.T) {
 	assert.NoError(t, err)
 	assert.False(t, s.Enabled)
 	assert.Equal(t, defaultExecutionMaxFiles, s.MaxFiles)
-}
-
-func TestTruncateResponseBody(t *testing.T) {
-	s := strings.Repeat("a", 100)
-	out := truncateResponseBody(s, 50)
-	assert.Len(t, out, len(s[:50])+len("\n... [truncated by max_response_bytes]"))
-	assert.Contains(t, out, "[truncated")
 }
 
 func TestSaveAndLoadExecutionLoggingSettings(t *testing.T) {

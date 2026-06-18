@@ -517,7 +517,6 @@ func (c *Commando) processApiInvoke(ctx *cli.Context, product *meta.Product, api
 		}
 	}
 	out = sortJSON(out)
-	config.CaptureResponseForExecutionLog(ctx, out)
 	if !QuietFlag(ctx.Flags()).IsAssigned() {
 		cli.Println(ctx.Stdout(), out)
 	}
@@ -587,7 +586,6 @@ func (c *Commando) processInvoke(ctx *cli.Context, productCode string, apiOrMeth
 	}
 
 	out = sortJSON(out)
-	config.CaptureResponseForExecutionLog(ctx, out)
 	if !QuietFlag(ctx.Flags()).IsAssigned() {
 		cli.Println(ctx.Stdout(), out)
 	}

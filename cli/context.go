@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aliyun/aliyun-cli/v3/i18n"
 )
@@ -54,10 +55,8 @@ type Context struct {
 	// use http instead of https
 	insecure    bool
 	runtimeEnvs map[string]string
-	// execution audit (optional): final API/body text written before root post-execute hook
-	executionLogResponse string
-	// plugin subprocess capture when record_response is enabled
-	executionLogPluginStderr string
+	// wall-clock start for per-command execution audit log (duration_ms)
+	executionStart time.Time
 }
 
 func (ctx *Context) Insecure() bool {
@@ -256,25 +255,20 @@ func (ctx *Context) SetInConfigureMode(mode bool) {
 	ctx.inConfigureMode = mode
 }
 
-// SetExecutionLogResponse stores body text for execution logging (e.g. API JSON after filters).
-// Used when execution_logging.json has record_response enabled; may be truncated by config.
-func (ctx *Context) SetExecutionLogResponse(body string) {
-	ctx.executionLogResponse = body
+// MarkExecutionStart records when the root command run began (for execution-log duration_ms).
+func (ctx *Context) MarkExecutionStart() {
+	if ctx == nil || !ctx.executionStart.IsZero() {
+		return
+	}
+	ctx.executionStart = time.Now()
 }
 
-// ExecutionLogResponse returns captured response body for the execution log writer.
-func (ctx *Context) ExecutionLogResponse() string {
-	return ctx.executionLogResponse
-}
-
-// SetExecutionLogPluginStderr stores plugin subprocess stderr text for execution logging.
-func (ctx *Context) SetExecutionLogPluginStderr(s string) {
-	ctx.executionLogPluginStderr = s
-}
-
-// ExecutionLogPluginStderr returns captured plugin stderr for the execution log writer.
-func (ctx *Context) ExecutionLogPluginStderr() string {
-	return ctx.executionLogPluginStderr
+// ExecutionDurationMs returns elapsed milliseconds since MarkExecutionStart, or -1 if unset.
+func (ctx *Context) ExecutionDurationMs() int64 {
+	if ctx == nil || ctx.executionStart.IsZero() {
+		return -1
+	}
+	return time.Since(ctx.executionStart).Milliseconds()
 }
 
 func (ctx *Context) SetCommand(cmd *Command) {

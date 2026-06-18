@@ -399,3 +399,17 @@ func TestPluginSubcommand_repeatedUnknownFlagValues(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "b", v)
 }
+
+func TestExecutionDurationMs(t *testing.T) {
+	assert.Equal(t, int64(-1), (*Context)(nil).ExecutionDurationMs())
+
+	ctx := NewCommandContext(&bytes.Buffer{}, &bytes.Buffer{})
+	assert.Equal(t, int64(-1), ctx.ExecutionDurationMs())
+
+	ctx.MarkExecutionStart()
+	ms := ctx.ExecutionDurationMs()
+	assert.GreaterOrEqual(t, ms, int64(0))
+
+	ctx.MarkExecutionStart() // idempotent: should not reset
+	assert.GreaterOrEqual(t, ctx.ExecutionDurationMs(), ms)
+}

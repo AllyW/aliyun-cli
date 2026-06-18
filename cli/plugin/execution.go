@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -183,24 +182,13 @@ func runPluginCommand(binPath string, args []string, stdout io.Writer, stderr io
 		return fmt.Errorf("binary path is empty")
 	}
 
-	stdoutW := stdout
-	stderrW := stderr
-	var outBuf, errBuf bytes.Buffer
-	if ctx != nil {
-		if s, e := config.LoadExecutionLoggingSettings(); e == nil && s.Enabled && s.RecordResponse {
-			stdoutW = io.MultiWriter(stdout, &outBuf)
-			stderrW = io.MultiWriter(stderr, &errBuf)
-		}
-	}
-
 	cmd := exec.Command(binPath, args...)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.Env = envs
 
 	err := cmd.Run()
-	config.CapturePluginStreamsForExecutionLog(ctx, outBuf.String(), errBuf.String())
 
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {

@@ -15,12 +15,9 @@ import (
 )
 
 const (
-	executionLogEnabledFlagName       = "enabled"
-	executionLogLogDirFlagName        = "log-dir"
-	executionLogMaxFilesFlagName      = "max-files"
-	executionLogRecordResponseFlagName = "record-response"
-	executionLogVerboseArgsFlagName   = "verbose-args"
-	executionLogMaxResponseBytesName  = "max-response-bytes"
+	executionLogEnabledFlagName  = "enabled"
+	executionLogLogDirFlagName   = "log-dir"
+	executionLogMaxFilesFlagName = "max-files"
 )
 
 func NewConfigureExecutionLogCommand() *cli.Command {
@@ -37,21 +34,6 @@ func NewConfigureExecutionLogCommand() *cli.Command {
 	maxFiles := &cli.Flag{
 		Name:         executionLogMaxFilesFlagName,
 		Short:        i18n.T("retention: max log files to keep (oldest trimmed in batches)", "保留的日志文件数量上限"),
-		AssignedMode: cli.AssignedDefault,
-	}
-	recordResponse := &cli.Flag{
-		Name:         executionLogRecordResponseFlagName,
-		Short:        i18n.T("record API response body in execution log (local/testing)", "在执行日志中记录 API 响应体（本地/测试）"),
-		AssignedMode: cli.AssignedDefault,
-	}
-	verboseArgs := &cli.Flag{
-		Name:         executionLogVerboseArgsFlagName,
-		Short:        i18n.T("log full argv without redaction (local/testing only)", "记录完整命令行参数（不脱敏，仅本地测试）"),
-		AssignedMode: cli.AssignedDefault,
-	}
-	maxRespBytes := &cli.Flag{
-		Name:         executionLogMaxResponseBytesName,
-		Short:        i18n.T("max response_body bytes in log (0=default 512KiB)", "响应体写入日志的最大字节数（0 表示默认 512KiB）"),
 		AssignedMode: cli.AssignedDefault,
 	}
 
@@ -81,7 +63,7 @@ func NewConfigureExecutionLogCommand() *cli.Command {
 	setCmd := &cli.Command{
 		Name:  "set",
 		Short: i18n.T("set execution logging options", "设置执行日志选项"),
-		Usage: "set [--enabled true|false] [--log-dir <path>] [--max-files <n>] [--record-response true|false] [--verbose-args true|false] [--max-response-bytes <n>]",
+		Usage: "set [--enabled true|false] [--log-dir <path>] [--max-files <n>]",
 		Run: func(c *cli.Context, args []string) error {
 			if len(args) > 0 {
 				return cli.NewInvalidCommandError(args[0], c)
@@ -122,39 +104,6 @@ func NewConfigureExecutionLogCommand() *cli.Command {
 					s.MaxFiles = n
 				}
 			}
-			if rf := fs.Get(executionLogRecordResponseFlagName); rf != nil && rf.IsAssigned() {
-				v, ok := rf.GetValue()
-				if !ok {
-					return fmt.Errorf("--%s requires a value", executionLogRecordResponseFlagName)
-				}
-				b, err := ParseExecutionLogEnabled(v)
-				if err != nil {
-					return err
-				}
-				s.RecordResponse = b
-			}
-			if vf := fs.Get(executionLogVerboseArgsFlagName); vf != nil && vf.IsAssigned() {
-				v, ok := vf.GetValue()
-				if !ok {
-					return fmt.Errorf("--%s requires a value", executionLogVerboseArgsFlagName)
-				}
-				b, err := ParseExecutionLogEnabled(v)
-				if err != nil {
-					return err
-				}
-				s.VerboseArgs = b
-			}
-			if mb := fs.Get(executionLogMaxResponseBytesName); mb != nil && mb.IsAssigned() {
-				v, ok := mb.GetValue()
-				if !ok {
-					return fmt.Errorf("--%s requires a value", executionLogMaxResponseBytesName)
-				}
-				n, err := ParseExecutionMaxResponseBytes(v)
-				if err != nil {
-					return err
-				}
-				s.MaxResponseBytes = n
-			}
 			if err := SaveExecutionLoggingSettings(&s); err != nil {
 				return err
 			}
@@ -165,9 +114,6 @@ func NewConfigureExecutionLogCommand() *cli.Command {
 	setCmd.Flags().Add(enabled)
 	setCmd.Flags().Add(logDir)
 	setCmd.Flags().Add(maxFiles)
-	setCmd.Flags().Add(recordResponse)
-	setCmd.Flags().Add(verboseArgs)
-	setCmd.Flags().Add(maxRespBytes)
 
 	parent := &cli.Command{
 		Name:  "execution-log",
@@ -177,7 +123,7 @@ func NewConfigureExecutionLogCommand() *cli.Command {
 			if len(args) > 0 {
 				return cli.NewInvalidCommandError(args[0], c)
 			}
-			return fmt.Errorf("usage: aliyun configure execution-log get | aliyun configure execution-log set [--enabled true|false] [--log-dir <path>] [--max-files <n>] [--record-response true|false] [--verbose-args true|false] [--max-response-bytes <n>]")
+			return fmt.Errorf("usage: aliyun configure execution-log get | aliyun configure execution-log set [--enabled true|false] [--log-dir <path>] [--max-files <n>]")
 		},
 	}
 	parent.AddSubCommand(getCmd)
