@@ -102,6 +102,9 @@ func (c *Command) Execute(ctx *Context, args []string) {
 	}
 
 	err := c.executeInner(ctx, args)
+	if c.parent == nil {
+		invokePostExecuteHook(ctx, args, err)
+	}
 	if err != nil {
 		c.processError(ctx, err)
 	}
