@@ -15,10 +15,8 @@
 package telemetry
 
 import (
-	"io"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/aliyun/aliyun-cli/v3/cli"
 	"github.com/aliyun/aliyun-cli/v3/sysconfig/aimode"
@@ -28,8 +26,6 @@ type BeginInput struct {
 	ConfigDir string
 	RootArgs  []string
 	Profile   ProfileSnapshot
-	Stderr    io.Writer
-	Quiet     bool
 }
 
 func Begin(in BeginInput) {
@@ -45,7 +41,6 @@ func Begin(in BeginInput) {
 	aiCfg, _ := aimode.Load(in.ConfigDir)
 	aiOn := aiCfg != nil && aiCfg.Enabled
 	beginSession(in.ConfigDir, scope, in.Profile, in.RootArgs, aiOn, cfg)
-	maybeShowInnerNotice(in.ConfigDir, cfg, in.Stderr, in.Quiet)
 }
 
 func End(rootArgs []string, err error) {
@@ -97,19 +92,6 @@ func spawnInnerUpload(configDir string) {
 	cmd := exec.Command(exe, "__telemetry-upload", "--pipeline=inner", "--config-dir", configDir)
 	detachProcess(cmd)
 	_ = cmd.Start()
-}
-
-func ArgsQuiet(rootArgs []string) bool {
-	for _, a := range rootArgs {
-		switch a {
-		case "--quiet", "-q":
-			return true
-		}
-		if strings.HasPrefix(a, "--quiet=") {
-			return true
-		}
-	}
-	return false
 }
 
 // RunUploadCommand handles the hidden __telemetry-upload entrypoint.

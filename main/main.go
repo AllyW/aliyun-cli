@@ -50,8 +50,8 @@ import (
 	"github.com/aliyun/aliyun-cli/v3/mock"
 	"github.com/aliyun/aliyun-cli/v3/openapi"
 	"github.com/aliyun/aliyun-cli/v3/oss/lib"
-	"github.com/aliyun/aliyun-cli/v3/sysconfig/telemetry"
 	sysmock "github.com/aliyun/aliyun-cli/v3/sysconfig/mock"
+	"github.com/aliyun/aliyun-cli/v3/sysconfig/telemetry"
 )
 
 var (
@@ -112,8 +112,6 @@ func Main(args []string) {
 			profile.RegionId,
 			profile.Endpoint,
 		),
-		Stderr: stderr,
-		Quiet:  telemetry.ArgsQuiet(args),
 	})
 
 	if os.Getenv("GENERATE_METADATA") == "YES" {

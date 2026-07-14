@@ -24,14 +24,13 @@ import (
 const ConfigFileName = "telemetry.json"
 
 type Config struct {
-	Enabled              bool   `json:"enabled,omitempty"`
-	InnerAutoOn          *bool  `json:"inner_auto_on,omitempty"`
-	InstanceID           string `json:"instance_id,omitempty"`
-	InnerNoticeShownAt   string `json:"inner_notice_shown_at,omitempty"`
-	LastUploadedAtInner  string `json:"last_uploaded_at_inner,omitempty"`
-	ConsentVersion       string `json:"consent_version,omitempty"`
-	ConsentAt            string `json:"consent_at,omitempty"`
-	LastUploadedAt       string `json:"last_uploaded_at,omitempty"`
+	Enabled             bool   `json:"enabled,omitempty"`
+	InnerAutoOn         *bool  `json:"inner_auto_on,omitempty"`
+	InstanceID          string `json:"instance_id,omitempty"`
+	LastUploadedAtInner string `json:"last_uploaded_at_inner,omitempty"`
+	ConsentVersion      string `json:"consent_version,omitempty"`
+	ConsentAt           string `json:"consent_at,omitempty"`
+	LastUploadedAt      string `json:"last_uploaded_at,omitempty"`
 }
 
 func DefaultConfig() *Config {
@@ -118,18 +117,6 @@ func MarkInnerUploaded(configDir string, c *Config) error {
 		}
 	}
 	c.LastUploadedAtInner = time.Now().Format(time.RFC3339)
-	return Save(configDir, c)
-}
-
-func MarkInnerNoticeShown(configDir string, c *Config) error {
-	if c == nil {
-		var err error
-		c, err = Load(configDir)
-		if err != nil {
-			return err
-		}
-	}
-	c.InnerNoticeShownAt = time.Now().Format(time.RFC3339)
 	return Save(configDir, c)
 }
 

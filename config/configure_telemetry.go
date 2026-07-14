@@ -144,27 +144,25 @@ func doTelemetryShow(ctx *cli.Context, configDir string, cfg *telemetry.Config) 
 		instancePrefix = instancePrefix[:8] + "..."
 	}
 	out := struct {
-		PublicEnabled      bool   `json:"public_enabled"`
-		InnerAutoOn        bool   `json:"inner_auto_on"`
-		GlobalOptOut       bool   `json:"global_opt_out"`
-		InnerOptOut        bool   `json:"inner_opt_out"`
-		InstanceIDPrefix   string `json:"instance_id_prefix,omitempty"`
-		InnerCacheFiles    int    `json:"inner_cache_files"`
-		InnerCacheBytes    int64  `json:"inner_cache_bytes"`
-		LastUploadedInner  string `json:"last_uploaded_at_inner,omitempty"`
-		ConfigFile         string `json:"config_file"`
-		InnerNoticeShownAt string `json:"inner_notice_shown_at,omitempty"`
+		PublicEnabled     bool   `json:"public_enabled"`
+		InnerAutoOn       bool   `json:"inner_auto_on"`
+		GlobalOptOut      bool   `json:"global_opt_out"`
+		InnerOptOut       bool   `json:"inner_opt_out"`
+		InstanceIDPrefix  string `json:"instance_id_prefix,omitempty"`
+		InnerCacheFiles   int    `json:"inner_cache_files"`
+		InnerCacheBytes   int64  `json:"inner_cache_bytes"`
+		LastUploadedInner string `json:"last_uploaded_at_inner,omitempty"`
+		ConfigFile        string `json:"config_file"`
 	}{
-		PublicEnabled:      cfg.Enabled,
-		InnerAutoOn:        telemetry.InnerAutoOnEnabled(cfg),
-		GlobalOptOut:       telemetry.GlobalOptOut(),
-		InnerOptOut:        telemetry.InnerOptOut(),
-		InstanceIDPrefix:   instancePrefix,
-		InnerCacheFiles:    stats.Files,
-		InnerCacheBytes:    stats.TotalBytes,
-		LastUploadedInner:  cfg.LastUploadedAtInner,
-		ConfigFile:         telemetry.GetConfigFilePath(configDir),
-		InnerNoticeShownAt: cfg.InnerNoticeShownAt,
+		PublicEnabled:     cfg.Enabled,
+		InnerAutoOn:       telemetry.InnerAutoOnEnabled(cfg),
+		GlobalOptOut:      telemetry.GlobalOptOut(),
+		InnerOptOut:       telemetry.InnerOptOut(),
+		InstanceIDPrefix:  instancePrefix,
+		InnerCacheFiles:   stats.Files,
+		InnerCacheBytes:   stats.TotalBytes,
+		LastUploadedInner: cfg.LastUploadedAtInner,
+		ConfigFile:        telemetry.GetConfigFilePath(configDir),
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
